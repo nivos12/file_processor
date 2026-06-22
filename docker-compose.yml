@@ -1,0 +1,44 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data          # persist DB + files across restarts
+      - .:/app                    # live-reload in dev
+    environment:
+      - DATABASE_URL=sqlite:////app/data/jobs.db
+      - STORAGE_ROOT=/app/data/files
+      - REDIS_URL=redis://redis:6379/0
+      - FILE_RETENTION_SECONDS=120
+      - CLEANUP_INTERVAL_SECONDS=120
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: rq worker pipeline --url redis://redis:6379/0
+    volumes:
+      - ./data:/app/data
+      - .:/app
+    environment:
+      - DATABASE_URL=sqlite:////app/data/jobs.db
+      - STORAGE_ROOT=/app/data/files
+      - REDIS_URL=redis://redis:6379/0
+      - FILE_RETENTION_SECONDS=120
+      - CLEANUP_INTERVAL_SECONDS=120
+    depends_on:
+      redis:
+        condition: service_healthy
